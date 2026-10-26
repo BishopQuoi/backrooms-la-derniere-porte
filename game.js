@@ -139,7 +139,7 @@ function interact(){
   if(collected<3){message('ACTIVEZ LES 3 BOÎTIERS POUR OUVRIR LE GARAGE.');return}
   enterGarage();return;
  }
- for(const b of boxes)if(!b.on&&nearby(player,b,1.15)){b.on=true;collected++;tone(660,.15);tone(880,.3,.03);objective();message(collected===3?'GARAGE OUVERT. RETROUVEZ LA GOLF.':'BOÎTIER ACTIVÉ — IL VOUS A ENTENDU.');return}
+ for(const b of boxes)if(!b.on&&nearby(player,b,1.15)){b.on=true;collected++;enemyMode='chase';lastKnown={x:player.x,y:player.y};patrolTarget=null;hideOrigin=null;escapeGrace=0;path=[];pathTimer=0;tone(660,.15);tone(880,.3,.03);objective();message(collected===3?'GARAGE OUVERT — IL CONNAÎT VOTRE POSITION. FUYEZ VERS LA GOLF.':'GÉNÉRATEUR ACTIVÉ — IL CONNAÎT VOTRE POSITION !');return}
  if(nearby(player,exit,1.3))message('LA SORTIE EST DANS LE PARKING. RETROUVEZ LA GOLF.');
 }
 function drawCockpit(w,h){
@@ -176,8 +176,8 @@ function update(dt){
  }
  if(enemyMode==='patrol'&&(!patrolTarget||Math.hypot(enemy.x-patrolTarget.x,enemy.y-patrolTarget.y)<.45)){patrolTarget=choosePatrolTarget();pathTimer=0;}
  const pursuitTarget=enemyMode==='patrol'?patrolTarget:lastKnown;
- if(elapsed>7&&pursuitTarget){pathTimer-=dt;if(pathTimer<=0){path=route(pursuitTarget);pathTimer=.45}
-  const target=path[0]||pursuitTarget,dist=Math.hypot(target.x-enemy.x,target.y-enemy.y),v=(garage?1.7:enemyMode==='patrol'?1.25:1.08+collected*.12)*dt;
+ if((elapsed>7||collected>0)&&pursuitTarget){pathTimer-=dt;if(pathTimer<=0){path=route(pursuitTarget);pathTimer=.45}
+  const target=path[0]||pursuitTarget,dist=Math.hypot(target.x-enemy.x,target.y-enemy.y),v=(garage?2.3:enemyMode==='patrol'?1.55:1.6+collected*.2)*dt;
   if(dist>.02){if(dist<v){enemy.x=target.x;enemy.y=target.y;path.shift()}else move(enemy,(target.x-enemy.x)/dist*v,(target.y-enemy.y)/dist*v,.16)}
  }
  const proximity=Math.hypot(enemy.x-player.x,enemy.y-player.y);
@@ -236,3 +236,5 @@ $('#start').onclick=()=>begin(true);$('#resume').onclick=()=>begin(false);$('#re
 $('#sensitivity').value=String(Math.round(sensitivity*100000));$('#sensitivityValue').textContent=String(Math.round(sensitivity*100000));
 $('#sensitivity').oninput=e=>{sensitivity=Number(e.target.value)/100000;$('#sensitivityValue').textContent=e.target.value;try{localStorage.setItem('backrooms-sensitivity-v2',String(sensitivity))}catch{}};
 window.addEventListener('resize',resize);textures();addDumbbell();createGolf();createGameplayTextures();loadPursuerPortrait();resize();reset();requestAnimationFrame(frame);
+
+
