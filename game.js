@@ -12,11 +12,12 @@ let hasKeys=false,driving=false,hiddenAt=null,hideCompromised=false,lastKnown={x
 let keyTexture,lockerTexture,garageWall;
 let sensitivity=.0009;
 let mouseMode='locked',dragging=false,lastMouseX=null;
+let enemyMode='chase',searchRemaining=3.5,patrolTarget=null,escapeGrace=0,hideOrigin=null;
 try{sensitivity=Number(localStorage.getItem('backrooms-sensitivity-v2'))||.0009}catch{}
 sensitivity=Math.max(.0005,Math.min(.003,sensitivity));
 function solid(x,y){return !layout[Math.floor(y)]||layout[Math.floor(y)][Math.floor(x)]!=='0'}
 function move(obj,dx,dy,r=.19){if(!solid(obj.x+dx+r*Math.sign(dx),obj.y-r)&&!solid(obj.x+dx+r*Math.sign(dx),obj.y+r))obj.x+=dx;if(!solid(obj.x-r,obj.y+dy+r*Math.sign(dy))&&!solid(obj.x+r,obj.y+dy+r*Math.sign(dy)))obj.y+=dy}
-function reset(){layout=originalLayout.slice();hasKeys=false;driving=false;hiddenAt=null;hideCompromised=false;garage=false;carSpeed=0;carHeading=0;lookYaw=0;mousePending=0;lastKnown={x:1.5,y:1.5};keys={};$('#hiding').hidden=true;$('#objectiveLabel').textContent='RÉTABLIR LE COURANT';player={x:1.5,y:1.5,a:.22};enemy={x:19.5,y:11.5};boxes.forEach(b=>b.on=false);collected=0;elapsed=0;energy=100;path=[];pathTimer=0;notice='';noticeUntil=0;$('#count').textContent='0 / 3';$('#hint').textContent='Trouvez les trois boîtiers électriques.'}
+function reset(){enemyMode='chase';searchRemaining=3.5;patrolTarget=null;escapeGrace=0;hideOrigin=null;layout=originalLayout.slice();hasKeys=false;driving=false;hiddenAt=null;hideCompromised=false;garage=false;carSpeed=0;carHeading=0;lookYaw=0;mousePending=0;lastKnown={x:1.5,y:1.5};keys={};$('#hiding').hidden=true;$('#objectiveLabel').textContent='RÉTABLIR LE COURANT';player={x:1.5,y:1.5,a:.22};enemy={x:19.5,y:11.5};boxes.forEach(b=>b.on=false);collected=0;elapsed=0;energy=100;path=[];pathTimer=0;notice='';noticeUntil=0;$('#count').textContent='0 / 3';$('#hint').textContent='Trouvez les trois boîtiers électriques.'}
 function texture(w,h,draw){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'));return c}
 function textures(){wallTexture=texture(128,128,c=>{c.fillStyle='#a79c59';c.fillRect(0,0,128,128);let seed=42;for(let i=0;i<6000;i++){seed=(seed*1664525+1013904223)>>>0;const x=seed%128;seed=(seed*1664525+1013904223)>>>0;c.fillStyle=`rgba(49,43,18,${(seed%12)/100})`;c.fillRect(x,(seed>>>9)%128,1,2)}c.strokeStyle='#6a613c55';for(let x=8;x<128;x+=16){c.beginPath();for(let y=0;y<=128;y+=4)c.lineTo(x+Math.sin(y*.16)*2,y);c.stroke()}c.fillStyle='#5b5239';c.fillRect(0,116,128,12);c.fillStyle='#c2b878';c.fillRect(0,114,128,2);c.fillStyle='#62582f';c.fillRect(0,0,128,3)});
 boxTexture=texture(96,128,c=>{c.fillStyle='#242923';c.fillRect(15,25,66,85);c.fillStyle='#777d6c';c.fillRect(18,28,60,78);c.fillStyle='#161d18';c.fillRect(24,37,48,36);c.fillStyle='#ffe6a0';c.fillRect(29,43,38,22);c.fillStyle='#e6c669';c.fillRect(38,82,20,13);c.fillStyle='#282a20';c.font='bold 10px monospace';c.fillText('POWER',30,58);c.strokeStyle='#b0a882';c.strokeRect(18,28,60,78)});
@@ -96,6 +97,20 @@ function createGameplayTextures(){
  keyTexture=texture(96,96,c=>{c.shadowColor='#ffe598';c.shadowBlur=12;c.strokeStyle='#f1d175';c.lineWidth=9;c.beginPath();c.arc(35,30,17,0,TAU);c.stroke();c.shadowBlur=0;c.beginPath();c.moveTo(46,43);c.lineTo(77,74);c.moveTo(65,62);c.lineTo(56,71);c.moveTo(74,71);c.lineTo(65,80);c.stroke();c.fillStyle='#252c34';c.fillRect(12,8,29,16);c.fillStyle='#e0e7ea';c.font='bold 10px Arial';c.fillText('VW',17,20)});
  lockerTexture=texture(96,160,c=>{c.fillStyle='#242b29';c.fillRect(9,2,78,158);c.fillStyle='#58615a';c.fillRect(14,6,68,148);c.strokeStyle='#949b7c';c.strokeRect(17,9,62,142);c.fillStyle='#192320';for(let y=22;y<58;y+=7)c.fillRect(27,y,42,3);c.fillStyle='#c8bd88';c.fillRect(65,83,5,17);c.font='bold 9px monospace';c.fillText('CACHE',28,123)});
 }
+// Pick a reachable destination far from the hiding spot, rather than camping there.
+function choosePatrolTarget(){
+ const candidates=[];
+ for(let y=1;y<layout.length-1;y++)for(let x=1;x<layout[y].length-1;x++){
+  if(solid(x+.5,y+.5))continue;
+  const target={x:x+.5,y:y+.5};
+  const away=hideOrigin?Math.hypot(target.x-hideOrigin.x,target.y-hideOrigin.y):0;
+  if(hideOrigin&&away<7)continue;
+  candidates.push({target,score:away+Math.hypot(target.x-enemy.x,target.y-enemy.y)});
+ }
+ candidates.sort((a,b)=>b.score-a.score);
+ for(const c of candidates){if(route(c.target).length>3)return c.target;}
+ return {x:lastKnown.x,y:lastKnown.y};
+}
 function visible(from,to){const d=Math.hypot(to.x-from.x,to.y-from.y);for(let t=.1;t<d;t+=.1)if(solid(from.x+(to.x-from.x)*t/d,from.y+(to.y-from.y)*t/d))return false;return true}
 function nearby(a,b,r=1){return Math.hypot(a.x-b.x,a.y-b.y)<r&&visible(a,b)}
 function objective(){
@@ -104,7 +119,7 @@ function objective(){
  $('#hint').textContent=garage?'Z / W : accélérer · S : reculer · Q / A et D : braquer':collected<3?'Activez les boîtiers. Les placards permettent de se cacher.':!hasKeys?'Cherchez les clés dorées dans les couloirs.':'La Golf vous attend dans le couloir du départ.';
 }
 function enterGarage(){
- garage=true;driving=true;hiddenAt=null;carSpeed=0;lookYaw=0;carHeading=0;mousePending=0;
+ garage=true;driving=true;hiddenAt=null;enemyMode='chase';patrolTarget=null;hideOrigin=null;escapeGrace=0;carSpeed=0;lookYaw=0;carHeading=0;mousePending=0;
  layout=['111111111111111111111',...Array.from({length:13},()=> '100000000000000000001'),'111111111111111111111'];
  // Concrete dividers leave broad aisles at alternating ends.
  for(let y=4;y<=10;y+=3){let r=layout[y].split('');for(let x=4;x<=16;x++)r[x]='1';layout[y]=r.join('')}
@@ -113,9 +128,9 @@ function enterGarage(){
 }
 function interact(){
  if(driving)return;
- if(hiddenAt){hiddenAt=null;hideCompromised=false;$('#hiding').hidden=true;message('VOUS SORTEZ DE LA CACHETTE.');return}
+ if(hiddenAt){if(!hideCompromised)escapeGrace=2;hiddenAt=null;hideCompromised=false;$('#hiding').hidden=true;message('VOUS SORTEZ DE LA CACHETTE.');return}
  for(const l of lockers)if(!garage&&nearby(player,l,.9)){
-  hiddenAt=l;hideCompromised=nearby(enemy,player,6);lastKnown={x:player.x,y:player.y};keys={};mousePending=0;$('#hiding').hidden=false;
+  hiddenAt=l;hideCompromised=nearby(enemy,player,6);lastKnown={x:player.x,y:player.y};keys={};mousePending=0;$('#hiding').hidden=false;if(!hideCompromised){enemyMode='search';searchRemaining=3.5;patrolTarget=null;hideOrigin={x:player.x,y:player.y};path=[];pathTimer=0;}
   message(hideCompromised?'IL VOUS A VU ENTRER !':'VOUS ÊTES CACHÉ — E POUR SORTIR.');return;
  }
  if(!hasKeys&&nearby(player,carKeys,.9)){hasKeys=true;tone(880,.25);objective();message('CLÉS DE LA GOLF RÉCUPÉRÉES.');return}
@@ -151,16 +166,25 @@ function update(dt){
   if(keys.ArrowLeft)player.a-=dt*1.8;if(keys.ArrowRight)player.a+=dt*1.8;
   if(moving){footstep-=dt;if(footstep<=0){tone(75+Math.random()*20,.09,.026,'triangle');footstep=running?.26:.45}}
  }else energy=Math.min(100,energy+18*dt);
- if(!hiddenAt||hideCompromised)lastKnown={x:player.x,y:player.y};
- if(elapsed>7){pathTimer-=dt;if(pathTimer<=0){path=route(lastKnown);pathTimer=.45}
-  const target=path[0]||lastKnown,dist=Math.hypot(target.x-enemy.x,target.y-enemy.y),v=(garage?1.7:1.08+collected*.12)*dt;
-  if(dist>0.02){if(dist<v){enemy.x=target.x;enemy.y=target.y;path.shift()}else move(enemy,(target.x-enemy.x)/dist*v,(target.y-enemy.y)/dist*v,.16)}
+ escapeGrace=Math.max(0,escapeGrace-dt);
+ const seesPlayer=!hiddenAt&&escapeGrace===0&&nearby(enemy,player,7);
+ if(hideCompromised||seesPlayer||driving){enemyMode='chase';patrolTarget=null;hideOrigin=null;}
+ if(enemyMode==='chase'&&(!hiddenAt||hideCompromised))lastKnown={x:player.x,y:player.y};
+ if(enemyMode==='search'&&Math.hypot(enemy.x-lastKnown.x,enemy.y-lastKnown.y)<.65){
+  searchRemaining-=dt;
+  if(searchRemaining<=0){enemyMode='patrol';patrolTarget=choosePatrolTarget();path=[];pathTimer=0;if(hiddenAt)message('IL S’ÉLOIGNE. ATTENDEZ QUE SES PAS DISPARAISSENT.');}
+ }
+ if(enemyMode==='patrol'&&(!patrolTarget||Math.hypot(enemy.x-patrolTarget.x,enemy.y-patrolTarget.y)<.45)){patrolTarget=choosePatrolTarget();pathTimer=0;}
+ const pursuitTarget=enemyMode==='patrol'?patrolTarget:lastKnown;
+ if(elapsed>7&&pursuitTarget){pathTimer-=dt;if(pathTimer<=0){path=route(pursuitTarget);pathTimer=.45}
+  const target=path[0]||pursuitTarget,dist=Math.hypot(target.x-enemy.x,target.y-enemy.y),v=(garage?1.7:enemyMode==='patrol'?1.25:1.08+collected*.12)*dt;
+  if(dist>.02){if(dist<v){enemy.x=target.x;enemy.y=target.y;path.shift()}else move(enemy,(target.x-enemy.x)/dist*v,(target.y-enemy.y)/dist*v,.16)}
  }
  const proximity=Math.hypot(enemy.x-player.x,enemy.y-player.y);
  if(proximity<.48&&(!hiddenAt||hideCompromised)){finish(false);return}
  heartbeat-=dt;if(proximity<6&&heartbeat<=0){tone(48,.14,.09);heartbeat=.35+proximity*.1}
  let prompt='';
- if(hiddenAt)prompt=hideCompromised?'IL SAIT OÙ VOUS ÊTES — E POUR SORTIR':'À COUVERT — E POUR SORTIR';
+ if(hiddenAt)prompt=hideCompromised?'IL SAIT OÙ VOUS ÊTES — E POUR SORTIR':(enemyMode==='patrol'?'IL EST REPARTI — E POUR SORTIR':'IL CHERCHE ENCORE — RESTEZ CACHÉ');
  else if(driving)prompt='Z / W : ACCÉLÉRER · Q / A / D : BRAQUER · C : RECENTRER LA VUE';
  else{for(const b of boxes)if(!b.on&&nearby(player,b,1.15))prompt='[ E ] RÉACTIVER LE BOÎTIER';
   if(!hasKeys&&nearby(player,carKeys,.9))prompt='[ E ] RAMASSER LES CLÉS DE LA GOLF';
